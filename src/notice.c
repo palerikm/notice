@@ -26,16 +26,35 @@ int registerUser(char *user, int socket)
 {
   if( numRegistered < MAX_REG){
     //do something
-    registrations[numRegistered++].socketfd= socket;
+    registrations[numRegistered].socketfd= socket;
 
-    strncpy(registrations[numRegistered++].user,
+    strncpy(registrations[numRegistered].user,
             user, 128);
+    numRegistered++;
     printf("Registered user %s on socket %i\n", user, socket);
     return 200;
   }
   return 403;
 }
 
+int inviteUser(char *user, char *msg, int msg_len)
+{
+  //find user
+  int i;
+  for(i=0; i<MAX_REG;i++){
+    if(strncmp(user, registrations[i].user, 128)==0){
+      printf("User found! on socket: %i\n", registrations[i].socketfd);
+
+      if (send(registrations[i].socketfd, msg, msg_len, 0) == -1) {
+          perror("Invite send");
+        }
+
+      return 100;
+    }
+  }
+  printf("No user found\n");
+  return 404;
+}
 
 
 // get sockaddr, IPv4 or IPv6:
@@ -65,7 +84,7 @@ int main(void)
     char remoteIP[INET6_ADDRSTRLEN];
 
     int yes=1;        // for setsockopt() SO_REUSEADDR, below
-    int i, j, rv;
+    int i, rv;
 
     struct addrinfo hints, *ai, *p;
 
@@ -167,11 +186,11 @@ int main(void)
                         FD_CLR(i, &master); // remove from master set
                     } else {
                         // we got some data from a client
-												if(strncmp(buf, "REGISTER", 8) == 0 ){
+                        if(strncmp(buf, "REGISTER", 8) == 0 ){
                           int ret;
 
                           ret = registerUser(buf+9, i);
-                          
+
                           memset(buf, 0, sizeof buf);
                           if (ret == 200){
                             if (send(i, "200 OK", 6, 0) == -1) {
@@ -183,7 +202,22 @@ int main(void)
                               }
                           }
 												}
-                        for(j = 0; j <= fdmax; j++) {
+                        if(strncmp(buf, "INVITE", 6) == 0 ){
+                          int ret;
+                          ret =inviteUser(buf+7, buf, strlen(buf));
+
+                          memset(buf, 0, sizeof buf);
+                          if (ret == 100){
+                            if (send(i, "100 Trying", 10, 0) == -1) {
+                                perror("send");
+                            }
+                          }else{
+                            if (send(i, "404", 3, 0) == -1) {
+                                perror("send");
+                              }
+                          }
+												}
+                        /*for(j = 0; j <= fdmax; j++) {
                             // send to everyone!
                             if (FD_ISSET(j, &master)) {
                                 // except the listener and ourselves
@@ -193,7 +227,7 @@ int main(void)
                                     }
                                 }
                             }
-                        }
+                        }*/
                     }
                 } // END handle data from client
             } // END got new incoming connection
