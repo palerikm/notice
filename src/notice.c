@@ -23,10 +23,29 @@ struct registration{
 struct registration registrations[MAX_REG];
 int numRegistered;
 
+
+struct registration* findUser(char* user)
+{
+  int i;
+
+  for(i=0; i<MAX_REG;i++){
+    if(strncmp(user, registrations[i].user, 128)==0){
+      return &registrations[i];
+    }
+  }
+  return NULL;
+}
+
 int registerUser(char *user, int socket)
 {
+  struct registration *reg;
+  reg = findUser(user);
+
+  if( reg != NULL){
+    return 403;
+  }
+
   if( numRegistered < MAX_REG){
-    //do something
     registrations[numRegistered].socketfd= socket;
 
     strncpy(registrations[numRegistered].user,
@@ -40,21 +59,21 @@ int registerUser(char *user, int socket)
 
 int inviteUser(char *user, char *msg, int msg_len)
 {
-  //find user
-  int i;
-  for(i=0; i<MAX_REG;i++){
-    if(strncmp(user, registrations[i].user, 128)==0){
-      printf("User found! on socket: %i\n %s\n", registrations[i].socketfd, msg);
+  struct registration *reg;
+  reg = findUser(user);
 
-      if (send(registrations[i].socketfd, msg, msg_len, 0) == -1) {
-          perror("Invite send");
-        }
-
-      return 100;
+  if(user != NULL){
+    printf("User found! on socket: %i\n %s\n", reg->socketfd, msg);
+    if (send(reg->socketfd, msg, msg_len, 0) == -1) {
+      perror("Invite send");
     }
+  return 100;
+
   }
-  printf("No user found (%s)\n", user);
-  return 404;
+  else{
+    printf("No user found (%s)\n", user);
+    return 404;
+  }
 }
 
 int handle200Ok(char *msg, int msg_len)
@@ -93,9 +112,7 @@ int handle200Ok(char *msg, int msg_len)
     }
     tok = strtok(NULL, delim);
   }
-
-
-return 1;
+  return 1;
 }
 
 // get sockaddr, IPv4 or IPv6:
@@ -119,7 +136,7 @@ int main(void)
     struct sockaddr_storage remoteaddr; // client address
     socklen_t addrlen;
 
-    char buf[256];    // buffer for client data
+    char buf[512];    // buffer for client data
     int nbytes;
 
     char remoteIP[INET6_ADDRSTRLEN];
@@ -232,7 +249,7 @@ int main(void)
 
                           ret = registerUser(buf+9, i);
 
-                          memset(buf, 0, sizeof buf);
+                          //memset(buf, 0, sizeof buf);
                           if (ret == 200){
                             if (send(i, "200 OK", 6, 0) == -1) {
                                 perror("send");
@@ -251,7 +268,7 @@ int main(void)
                           printf("buf: \n %s\n", buf);
                           ret =inviteUser(strtok(str+7, delim), buf, strlen(buf));
 
-                          memset(buf, 0, sizeof buf);
+                          //memset(buf, 0, sizeof buf);
                           if (ret == 100){
                             if (send(i, "100 Trying", 10, 0) == -1) {
                                 perror("send");
@@ -278,6 +295,7 @@ int main(void)
                                 }
                             }
                         }*/
+                        memset(buf, 0, sizeof buf);
                     }
                 } // END handle data from client
             } // END got new incoming connection
