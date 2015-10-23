@@ -55,6 +55,25 @@ int registerUser(char *user, int socket)
   return 403;
 }
 
+int deregisterUser(int socket)
+{
+  int i;
+  for(i=0; i<MAX_REG;i++){
+      if( registrations[i].socketfd == socket ){
+        memset(&registrations[i], 0, sizeof(struct registration));
+        numRegistered--;
+        //Move rest of the registrations down one.....
+        if(i == MAX_REG-1) return 1;
+        int j;
+        for(j=i+1;j<=MAX_REG; j++){
+          memcpy(&registrations[i], &registrations[j], sizeof(struct registration));
+        }
+        return 1;
+      }
+  }
+  return -1;
+}
+
 int inviteUser(char *user, char *msg, int msg_len)
 {
   struct registration *reg;
@@ -223,7 +242,12 @@ int main(void)
                         // got error or connection closed by client
                         if (nbytes == 0) {
                             // connection closed
+                            int ret;
                             printf("selectserver: socket %d hung up\n", i);
+                            ret = deregisterUser(i);
+                            if(ret==1){
+                              printf("User derigeistered\n");
+                            }
                         } else {
                             perror("recv");
                         }
