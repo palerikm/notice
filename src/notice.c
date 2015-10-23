@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <ctype.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -29,7 +30,7 @@ int registerUser(char *user, int socket)
     registrations[numRegistered].socketfd= socket;
 
     strncpy(registrations[numRegistered].user,
-            user, 128);
+            user, strlen(user));
     numRegistered++;
     printf("Registered user %s on socket %i\n", user, socket);
     return 200;
@@ -43,7 +44,7 @@ int inviteUser(char *user, char *msg, int msg_len)
   int i;
   for(i=0; i<MAX_REG;i++){
     if(strncmp(user, registrations[i].user, 128)==0){
-      printf("User found! on socket: %i\n", registrations[i].socketfd);
+      printf("User found! on socket: %i\n %s\n", registrations[i].socketfd, msg);
 
       if (send(registrations[i].socketfd, msg, msg_len, 0) == -1) {
           perror("Invite send");
@@ -52,10 +53,50 @@ int inviteUser(char *user, char *msg, int msg_len)
       return 100;
     }
   }
-  printf("No user found\n");
+  printf("No user found (%s)\n", user);
   return 404;
 }
 
+int handle200Ok(char *msg, int msg_len)
+{
+  char str[255];
+  char *delim = "\n:\\";
+  char *tok;
+  int i;
+
+ if(msg_len>255) return -1;
+
+  strncpy(str, msg, 255);
+
+  tok = strtok((char *)str, delim);
+  //Pesky parsing again
+  //Find the to tags
+  while(tok != NULL){
+    printf("tok: %s\n", tok);
+
+    if( strncmp(tok, "To", 3) == 0){
+      tok = strtok(NULL, delim);
+      while( isspace(*tok)) tok++;
+      printf("Found the To tag (%s)\n", tok);
+      for(i=0; i<MAX_REG;i++){
+        if(strncmp(tok, registrations[i].user, 128)==0){
+          printf("User found! on socket: %i\n %s\n", registrations[i].socketfd, msg);
+
+          if (send(registrations[i].socketfd, msg, msg_len, 0) == -1) {
+              perror("Invite send");
+            }
+
+          return 100;
+        }
+      }
+
+    }
+    tok = strtok(NULL, delim);
+  }
+
+
+return 1;
+}
 
 // get sockaddr, IPv4 or IPv6:
 void *get_in_addr(struct sockaddr *sa)
@@ -204,7 +245,11 @@ int main(void)
 												}
                         if(strncmp(buf, "INVITE", 6) == 0 ){
                           int ret;
-                          ret =inviteUser(buf+7, buf, strlen(buf));
+                          char str[sizeof buf];
+                          strncpy(str, buf, sizeof buf);
+                          const char delim[2] ="\n";
+                          printf("buf: \n %s\n", buf);
+                          ret =inviteUser(strtok(str+7, delim), buf, strlen(buf));
 
                           memset(buf, 0, sizeof buf);
                           if (ret == 100){
@@ -216,6 +261,11 @@ int main(void)
                                 perror("send");
                               }
                           }
+												}
+                        if(strncmp(buf, "200 OK", 6) == 0 ){
+                          printf("Got a 200 OK: %s\n", buf);
+                          handle200Ok(buf, nbytes);
+
 												}
                         /*for(j = 0; j <= fdmax; j++) {
                             // send to everyone!
