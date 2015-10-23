@@ -27,9 +27,8 @@ int numRegistered;
 struct registration* findUser(char* user)
 {
   int i;
-
   for(i=0; i<MAX_REG;i++){
-    if(strncmp(user, registrations[i].user, 128)==0){
+      if(strncmp(user, registrations[i].user, 128)==0){
       return &registrations[i];
     }
   }
@@ -47,7 +46,6 @@ int registerUser(char *user, int socket)
 
   if( numRegistered < MAX_REG){
     registrations[numRegistered].socketfd= socket;
-
     strncpy(registrations[numRegistered].user,
             user, strlen(user));
     numRegistered++;
@@ -61,14 +59,12 @@ int inviteUser(char *user, char *msg, int msg_len)
 {
   struct registration *reg;
   reg = findUser(user);
-
-  if(user != NULL){
+  if(reg != NULL){
     printf("User found! on socket: %i\n %s\n", reg->socketfd, msg);
     if (send(reg->socketfd, msg, msg_len, 0) == -1) {
       perror("Invite send");
     }
-  return 100;
-
+    return 100;
   }
   else{
     printf("No user found (%s)\n", user);
@@ -84,34 +80,26 @@ int handle200Ok(char *msg, int msg_len)
   int i;
 
  if(msg_len>255) return -1;
-
   strncpy(str, msg, 255);
-
   tok = strtok((char *)str, delim);
   //Pesky parsing again
   //Find the to tags
   while(tok != NULL){
-    printf("tok: %s\n", tok);
-
     if( strncmp(tok, "To", 3) == 0){
       tok = strtok(NULL, delim);
       while( isspace(*tok)) tok++;
-      printf("Found the To tag (%s)\n", tok);
-      for(i=0; i<MAX_REG;i++){
-        if(strncmp(tok, registrations[i].user, 128)==0){
-          printf("User found! on socket: %i\n %s\n", registrations[i].socketfd, msg);
-
-          if (send(registrations[i].socketfd, msg, msg_len, 0) == -1) {
-              perror("Invite send");
+          for(i=0; i<MAX_REG;i++){
+            if(strncmp(tok, registrations[i].user, 128)==0){
+              printf("User found! on socket: %i\n %s\n", registrations[i].socketfd, msg);
+              if (send(registrations[i].socketfd, msg, msg_len, 0) == -1) {
+                perror("Invite send");
+              }
+              return 100;
             }
-
-          return 100;
+          }//for
         }
+        tok = strtok(NULL, delim);
       }
-
-    }
-    tok = strtok(NULL, delim);
-  }
   return 1;
 }
 
@@ -121,7 +109,6 @@ void *get_in_addr(struct sockaddr *sa)
     if (sa->sa_family == AF_INET) {
         return &(((struct sockaddr_in*)sa)->sin_addr);
     }
-
     return &(((struct sockaddr_in6*)sa)->sin6_addr);
 }
 
@@ -246,10 +233,7 @@ int main(void)
                         // we got some data from a client
                         if(strncmp(buf, "REGISTER", 8) == 0 ){
                           int ret;
-
                           ret = registerUser(buf+9, i);
-
-                          //memset(buf, 0, sizeof buf);
                           if (ret == 200){
                             if (send(i, "200 OK", 6, 0) == -1) {
                                 perror("send");
@@ -263,12 +247,11 @@ int main(void)
                         if(strncmp(buf, "INVITE", 6) == 0 ){
                           int ret;
                           char str[sizeof buf];
-                          strncpy(str, buf, sizeof buf);
+                          char user[128];
                           const char delim[2] ="\n";
-                          printf("buf: \n %s\n", buf);
-                          ret =inviteUser(strtok(str+7, delim), buf, strlen(buf));
-
-                          //memset(buf, 0, sizeof buf);
+                          strncpy(str, buf, sizeof buf);
+                          strncpy(user, strtok(str+7, delim), 128);
+                          ret = inviteUser( user, buf, strlen(buf));
                           if (ret == 100){
                             if (send(i, "100 Trying", 10, 0) == -1) {
                                 perror("send");
@@ -284,17 +267,6 @@ int main(void)
                           handle200Ok(buf, nbytes);
 
 												}
-                        /*for(j = 0; j <= fdmax; j++) {
-                            // send to everyone!
-                            if (FD_ISSET(j, &master)) {
-                                // except the listener and ourselves
-                                if (j != listener && j != i) {
-                                    if (send(j, buf, nbytes, 0) == -1) {
-                                        perror("send");
-                                    }
-                                }
-                            }
-                        }*/
                         memset(buf, 0, sizeof buf);
                     }
                 } // END handle data from client
