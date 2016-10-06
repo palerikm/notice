@@ -77,12 +77,15 @@ int deregisterUser(int socket)
 int inviteUser(char *user, char *msg, int msg_len)
 {
   struct registration *reg;
+  int numbytes = 0;
   reg = findUser(user);
   if(reg != NULL){
-    printf("User found! on socket: %i\n %s\n", reg->socketfd, msg);
-    if (send(reg->socketfd, msg, msg_len, 0) == -1) {
+    printf("User found! on socket: %i\n----MSG---\n%s\n", reg->socketfd, msg);
+    numbytes = send(reg->socketfd, msg, msg_len, 0);
+    if ( numbytes == -1 ) {
       perror("Invite send");
     }
+    printf("Sent: %i bytes\n", numbytes);
     return 100;
   }
   else{
@@ -93,13 +96,13 @@ int inviteUser(char *user, char *msg, int msg_len)
 
 int handle200Ok(char *msg, int msg_len)
 {
-  char str[255];
+  char str[4096];
   char *delim = "\n:\\";
   char *tok;
   int i;
 
- if(msg_len>255) return -1;
-  strncpy(str, msg, 255);
+ if(msg_len>4096) return -1;
+  strncpy(str, msg, 4096);
   tok = strtok((char *)str, delim);
   //Pesky parsing again
   //Find the to tags
@@ -111,7 +114,7 @@ int handle200Ok(char *msg, int msg_len)
             if(strncmp(tok, registrations[i].user, 128)==0){
               printf("User found! on socket: %i\n %s\n", registrations[i].socketfd, msg);
               if (send(registrations[i].socketfd, msg, msg_len, 0) == -1) {
-                perror("Invite send");
+                perror("200OK send");
               }
               return 100;
             }
@@ -142,7 +145,7 @@ int main(void)
     struct sockaddr_storage remoteaddr; // client address
     socklen_t addrlen;
 
-    char buf[512];    // buffer for client data
+    char buf[4096];    // buffer for client data
     int nbytes;
 
     char remoteIP[INET6_ADDRSTRLEN];
@@ -255,6 +258,9 @@ int main(void)
                         FD_CLR(i, &master); // remove from master set
                     } else {
                         // we got some data from a client
+                        printf("Got nbytes to handle: %i\n", nbytes);
+
+
                         if(strncmp(buf, "REGISTER", 8) == 0 ){
                           int ret;
                           ret = registerUser(buf+9, i);
