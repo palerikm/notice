@@ -47,7 +47,7 @@ int registerUser(char *user, int socket)
   if( numRegistered < MAX_REG){
     registrations[numRegistered].socketfd= socket;
     strncpy(registrations[numRegistered].user,
-            user, strlen(user));
+            user, strlen(user)-1);
     numRegistered++;
     printf("Registered user %s on socket %i\n", user, socket);
     return 200;
@@ -265,11 +265,11 @@ int main(void)
                           int ret;
                           ret = registerUser(buf+9, i);
                           if (ret == 200){
-                            if (send(i, "200 OK", 6, 0) == -1) {
+                            if (send(i, "200 OK\r\n", 8, 0) == -1) {
                                 perror("send");
                               }
                           }else{
-                            if (send(i, "401", 3, 0) == -1) {
+                            if (send(i, "401\r\n", 5, 0) == -1) {
                                 perror("send");
                               }
                           }
@@ -283,11 +283,11 @@ int main(void)
                           strncpy(user, strtok(str+7, delim), 128);
                           ret = inviteUser( user, buf, strlen(buf));
                           if (ret == 100){
-                            if (send(i, "100 Trying", 10, 0) == -1) {
+                            if (send(i, "100 Trying\r\n", 12, 0) == -1) {
                                 perror("send");
                             }
                           }else{
-                            if (send(i, "404", 3, 0) == -1) {
+                            if (send(i, "404\r\n", 5, 0) == -1) {
                                 perror("send");
                               }
                           }
@@ -295,7 +295,6 @@ int main(void)
                         if(strncmp(buf, "200 OK", 6) == 0 ){
                           printf("Got a 200 OK: %s\n", buf);
                           handle200Ok(buf, nbytes);
-
 												}
                         memset(buf, 0, sizeof buf);
                     }
