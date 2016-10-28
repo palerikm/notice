@@ -11,183 +11,19 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <netdb.h>
+#include <stdbool.h>
+
+
+#include "message.h"
 
 #define PORT "5061"   /* port we're listening on */
-#define MAX_REG 100
-
-struct registration {
-  int  socketfd;
-  char user[128];
-};
-
-struct registration registrations[MAX_REG];
-int                 numRegistered;
 
 
-int
-sendall(int   s,
-        char* buf,
-        int*  len)
-{
-  int total     = 0;      /* how many bytes we've sent */
-  int bytesleft = *len;   /* how many we have left to send */
-  int n;
 
-  while (total < *len)
-  {
-    n = send(s, buf + total, bytesleft, 0);
-    if (n == -1)
-    {
-      break;
-    }
-    total     += n;
-    bytesleft -= n;
-  }
 
-  *len = total;   /* return number actually sent here */
 
-  return n == -1 ? -1 : 0; /* return -1 on failure, 0 on success */
-}
 
-struct registration*
-findUser(char* user)
-{
-  int i;
-  for (i = 0; i < MAX_REG; i++)
-  {
-    if (strncmp(user, registrations[i].user, 128) == 0)
-    {
-      return &registrations[i];
-    }
-  }
-  return NULL;
-}
 
-int
-registerUser(char* user,
-             int   socket)
-{
-  struct registration* reg;
-  reg = findUser(user);
-
-  if (reg != NULL)
-  {
-    return 403;
-  }
-
-  if (numRegistered < MAX_REG)
-  {
-    registrations[numRegistered].socketfd = socket;
-    strncpy(registrations[numRegistered].user,
-            user, strlen(user) - 1);
-    numRegistered++;
-    printf("Registered user %s on socket %i\n", user, socket);
-    return 200;
-  }
-  return 403;
-}
-
-int
-deregisterUser(int socket)
-{
-  int i;
-  for (i = 0; i < MAX_REG; i++)
-  {
-    if (registrations[i].socketfd == socket)
-    {
-      memset( &registrations[i], 0, sizeof(struct registration) );
-      numRegistered--;
-      /* Move rest of the registrations down one..... */
-      if (i == MAX_REG - 1)
-      {
-        return 1;
-      }
-      int j;
-      for (j = i + 1; j <= MAX_REG; j++)
-      {
-        memcpy( &registrations[i], &registrations[j],
-                sizeof(struct registration) );
-      }
-      return 1;
-    }
-  }
-  return -1;
-}
-
-int
-inviteUser(char* user,
-           char* msg,
-           int   msg_len)
-{
-  struct registration* reg;
-  /* int numbytes = 0; */
-  reg = findUser(user);
-  if (reg != NULL)
-  {
-    printf("User found! on socket: %i\n----MSG---\n%s\n", reg->socketfd, msg);
-    /* numbytes = send(reg->socketfd, msg, msg_len, 0); */
-    if (sendall(reg->socketfd, msg, &msg_len) == -1)
-    {
-      perror("sendall");
-      printf("We only sent %d bytes because of the error!\n", msg_len);
-    }
-
-    return 100;
-  }
-  else
-  {
-    printf("No user found (%s)\n", user);
-    return 404;
-  }
-}
-
-int
-handle200Ok(char* msg,
-            int   msg_len)
-{
-  char  str[4096];
-  char* delim = "\n:\\";
-  char* tok;
-  int   i;
-
-  if (msg_len > 4096)
-  {
-    return -1;
-  }
-  strncpy(str, msg, 4096);
-  tok = strtok( (char*)str, delim );
-  /* Pesky parsing again */
-  /* Find the to tags */
-  while (tok != NULL)
-  {
-    if (strncmp(tok, "To", 3) == 0)
-    {
-      tok = strtok(NULL, delim);
-      while ( isspace(*tok) )
-      {
-        tok++;
-      }
-      for (i = 0; i < MAX_REG; i++)
-      {
-        if (strncmp(tok, registrations[i].user, 128) == 0)
-        {
-          printf("User found! on socket: %i\n %s\n",
-                 registrations[i].socketfd,
-                 msg);
-
-          if (sendall(registrations[i].socketfd, msg, &msg_len) == -1)
-          {
-            perror("200 OK send");
-            printf("We only sent %d bytes because of the error!\n", msg_len);
-          }
-          return 100;
-        }
-      }    /* for */
-    }
-    tok = strtok(NULL, delim);
-  }
-  return 1;
-}
 
 /* get sockaddr, IPv4 or IPv6: */
 void*
@@ -199,6 +35,7 @@ get_in_addr(struct sockaddr* sa)
   }
   return &( ( (struct sockaddr_in6*)sa )->sin6_addr );
 }
+
 
 int
 main(void)
@@ -221,6 +58,10 @@ main(void)
   int i, rv;
 
   struct addrinfo hints, * ai, * p;
+
+
+  struct registration registrations[MAX_REG];
+  size_t              numRegistered;
 
   FD_ZERO(&master);      /* clear the master and temp sets */
   FD_ZERO(&read_fds);
@@ -333,7 +174,7 @@ main(void)
               /* connection closed */
               int ret;
               printf("selectserver: socket %d hung up\n", i);
-              ret = deregisterUser(i);
+              ret = deregisterUser(i, registrations, &numRegistered);
               if (ret == 1)
               {
                 printf("User derigeistered\n");
@@ -350,68 +191,8 @@ main(void)
           {
             /* we got some data from a client */
             printf("Got nbytes to handle: %i\n", nbytes);
+            handleMsg(i, buf, nbytes, registrations, &numRegistered);
 
-
-            if (strncmp(buf, "REGISTER", 8) == 0)
-            {
-              int ret;
-              ret = registerUser(buf + 9, i);
-
-              if (ret == 200)
-              {
-                char retStr[] = "200 OK\r\n\0";
-                int  len      = strlen(retStr);
-                if (sendall(i, retStr, &len) == -1)
-                {
-                  perror("200 OK send (Register)");
-
-                }
-
-              }
-              else
-              {
-                char retStr[] = "401\r\n\0";
-                int  len      = strlen(retStr);
-                if (sendall(i, retStr, &len) == -1)
-                {
-                  perror("401 send (Register)");
-                }
-              }
-            }
-            if (strncmp(buf, "INVITE", 6) == 0)
-            {
-              int        ret;
-              char       str[sizeof buf];
-              char       user[128];
-              const char delim[2] = "\n";
-              strncpy(str,  buf,                    sizeof buf);
-              strncpy(user, strtok(str + 7, delim), 128);
-              ret = inviteUser( user, buf, strlen(buf) );
-              if (ret == 100)
-              {
-                char retStr[] = "100 Trying\r\n\0";
-                int  len      = strlen(retStr);
-                if (sendall(i, retStr, &len) == -1)
-                {
-                  perror("100 Trying send");
-                }
-              }
-              else
-              {
-                char retStr[] = "404\r\n\0";
-                int  len      = strlen(retStr);
-                if (sendall(i, retStr, &len) == -1)
-                {
-                  perror("404 send");
-                }
-              }
-            }
-            if (strncmp(buf, "200 OK", 6) == 0)
-            {
-              printf("Got a 200 OK: %s\n", buf);
-              handle200Ok(buf, nbytes);
-            }
-            memset(buf, 0, sizeof buf);
           }
         }         /* END handle data from client */
       }       /* END got new incoming connection */
@@ -420,146 +201,3 @@ main(void)
 
   return 0;
 }
-
-        #if 0
-int                verify_peer = ON;
-const SSL_METHOD*  server_meth;
-SSL_CTX*           ssl_server_ctx;
-int                serversocketfd;
-int                clientsocketfd;
-struct sockaddr_un serveraddr;
-/* int handshakestatus; */
-
-SSL_library_init();
-SSL_load_error_strings();
-server_meth    = SSLv3_server_method();
-ssl_server_ctx = SSL_CTX_new(server_meth);
-
-if (!ssl_server_ctx)
-{
-  ERR_print_errors_fp(stderr);
-  return -1;
-}
-
-if (SSL_CTX_use_certificate_file(ssl_server_ctx, SSL_SERVER_RSA_CERT,
-                                 SSL_FILETYPE_PEM) <= 0)
-{
-  ERR_print_errors_fp(stderr);
-  return -1;
-}
-
-
-if (SSL_CTX_use_PrivateKey_file(ssl_server_ctx, SSL_SERVER_RSA_KEY,
-                                SSL_FILETYPE_PEM) <= 0)
-{
-  ERR_print_errors_fp(stderr);
-  return -1;
-}
-
-if (SSL_CTX_check_private_key(ssl_server_ctx) != 1)
-{
-  printf("Private and certificate is not matching\n");
-  return -1;
-}
-
-if (verify_peer)
-{
-  /* See function man pages for instructions on generating CERT files */
-  if ( !SSL_CTX_load_verify_locations(ssl_server_ctx, SSL_SERVER_RSA_CA_CERT,
-                                      NULL) )
-  {
-    ERR_print_errors_fp(stderr);
-    return -1;
-  }
-  SSL_CTX_set_verify(ssl_server_ctx, SSL_VERIFY_PEER, NULL);
-  SSL_CTX_set_verify_depth(ssl_server_ctx, 1);
-}
-
-if ( ( serversocketfd = socket(AF_INET, SOCK_STREAM, 0) ) < 0 )
-{
-  printf("Error on socket creation\n");
-  return -1;
-}
-memset( &serveraddr, 0, sizeof(struct sockaddr_un) );
-serveraddr.sun_family  = AF_UNIX;
-serveraddr.sun_path[0] = 0;
-strncpy(&(serveraddr.sun_path[1]), SSL_SERVER_ADDR,
-        strlen(SSL_SERVER_ADDR) + 1);
-if ( bind( serversocketfd, (struct sockaddr*)&serveraddr,
-           sizeof(struct sockaddr_un) ) )
-{
-  printf("server bind error\n");
-  return -1;
-}
-
-if ( listen(serversocketfd, SOMAXCONN) )
-{
-  printf("Error on listen\n");
-  return -1;
-}
-while (1)
-{
-  SSL* serverssl;
-  char buffer[1024];
-  int  bytesread = 0;
-  int  addedstrlen;
-  int  ret;
-
-  clientsocketfd = accept(serversocketfd, NULL, 0);
-  serverssl      = SSL_new(ssl_server_ctx);
-  if (!serverssl)
-  {
-    printf("Error SSL_new\n");
-    return -1;
-  }
-  SSL_set_fd(serverssl, clientsocketfd);
-
-  if ( ( ret = SSL_accept(serverssl) ) != 1 )
-  {
-    printf( "Handshake Error %d\n", SSL_get_error(serverssl, ret) );
-    return -1;
-  }
-
-  if (verify_peer)
-  {
-    X509* ssl_client_cert = NULL;
-
-    ssl_client_cert = SSL_get_peer_certificate(serverssl);
-
-    if (ssl_client_cert)
-    {
-      long verifyresult;
-
-      verifyresult = SSL_get_verify_result(serverssl);
-      if (verifyresult == X509_V_OK)
-      {
-        printf("Certificate Verify Success\n");
-      }
-      else
-      {
-        printf("Certificate Verify Failed\n");
-      }
-      X509_free(ssl_client_cert);
-    }
-    else
-    {
-      printf("There is no client certificate\n");
-    }
-  }
-  bytesread   = SSL_read( serverssl, buffer, sizeof(buffer) );
-  addedstrlen = strlen("Appended by SSL server");
-  strncpy(&buffer[bytesread], "Appended by SSL server", addedstrlen);
-  buffer[bytesread +  addedstrlen ] = '\0';
-  SSL_write(serverssl, buffer, bytesread + addedstrlen + 1);
-  SSL_shutdown(serverssl);
-  close(clientsocketfd);
-  clientsocketfd = -1;
-  SSL_free(serverssl);
-  serverssl = NULL;
-}
-close(serversocketfd);
-SSL_CTX_free(ssl_server_ctx);
-return 0;
-
-}
-#endif

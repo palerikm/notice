@@ -22,6 +22,8 @@ if( OPENSSL_FOUND )
 endif( OPENSSL_FOUND )
 
 add_executable ( notice
+                 register.c
+                 message.c
                  notice.c )
 
 target_link_libraries ( notice PRIVATE pthread
